@@ -240,26 +240,12 @@ def remediate(target):
 # ----------------------
 # Visualization helpers
 # ----------------------
-def draw_mesh_random(trust_map, highlight=None, density=0.25):
-    import matplotlib.pyplot as plt
-    import networkx as nx
-    import random
-
-    nodes = list(trust_map.keys())
+def draw_mesh(trust_map, highlight=None):
     G = nx.Graph()
+    nodes = list(trust_map.keys())
     G.add_nodes_from(nodes)
-
-    # always add ring edges for base connectivity (keeps layout neat)
     for i in range(len(nodes)):
         G.add_edge(nodes[i], nodes[(i+1) % len(nodes)])
-
-    # add extra random edges based on density probability
-    # density=0 -> only ring; density=1 -> full mesh
-    for i in range(len(nodes)):
-        for j in range(i+2, len(nodes)):  # avoid duplicate ring adjacency
-            if random.random() < density:
-                G.add_edge(nodes[i], nodes[j])
-
     pos = nx.spring_layout(G, seed=42)
     fig, ax = plt.subplots(figsize=(6.8,4))
     colors = []
@@ -272,7 +258,7 @@ def draw_mesh_random(trust_map, highlight=None, density=0.25):
     nx.draw_networkx_labels(G, pos, font_size=9, font_color='white', ax=ax)
     nx.draw_networkx_edges(G, pos, alpha=0.35, ax=ax)
     if highlight:
-        nx.draw_networkx_nodes(G, pos, nodelist=[highlight], node_color='cyan', node_size=800, ax=ax)
+        nx.draw_networkx_nodes(G, pos, nodelist=[highlight], node_color='cyan', node_size=700, ax=ax)
     ax.set_facecolor("#071631")
     fig.patch.set_facecolor("#071631")
     ax.axis('off')
@@ -348,7 +334,6 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("Model & Intent")
     st.session_state.model_quality = st.slider("Global model quality (simulated)", 0.0, 0.95, float(st.session_state.model_quality))
-    mesh_density = st.slider("Mesh density (0=sparse,1=full)", 0.0, 1.0, 0.25)
     st.text_area("Policy / Intent", value=st.session_state.policy_text, key="policy_area", height=120)
     if st.button("Translate Intent (AIP)"):
         actions = aip_translate(st.session_state.policy_text)
@@ -364,11 +349,7 @@ left_col, mid_col, right_col = st.columns([1.1, 0.9, 0.95])
 
 with left_col:
     st.subheader("Threat Map (SCADA Mesh)")
-    draw_mesh_random(
-    st.session_state.trust,
-    highlight=st.session_state.attack_target if st.session_state.attack_active else None,
-    density=mesh_density
-)
+    draw_mesh(st.session_state.trust, highlight=st.session_state.attack_target if st.session_state.attack_active else None)
     st.markdown("<div class='small'>Node color = trust (green high → red low). Highlight = current attack target.</div>", unsafe_allow_html=True)
     trust_bar_chart(st.session_state.trust)
 
@@ -401,7 +382,7 @@ with right_col:
             st.session_state.attack_active = False
             log_event("Attack stopped by operator")
 
-       # --------------------------
+        # --------------------------
     # Manual mode controls (full 6-step flow)
     # --------------------------
     if mode == "Manual (step-by-step)":
@@ -493,7 +474,6 @@ with right_col:
                     st.success(f"{st.session_state.attack_target} remediated and reintegrated. Trust restored: {st.session_state.trust[st.session_state.attack_target]:.2f}")
 
     # End of Manual mode controls
-
     else:
         # Auto single-run execution (blocking but short)
         if st.button("▶ Run Full Scenario (Auto)"):
