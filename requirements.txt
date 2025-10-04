@@ -3,3 +3,4 @@ networkx
 matplotlib
 pandas
 numpy
+altair
