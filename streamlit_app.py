@@ -159,6 +159,50 @@ def draw_mesh(trust_map, highlight=None):
 # layout: two main columns
 col_left, col_mid, col_right = st.columns([1.1, 0.9, 0.9])
 
+# ---------------------
+# Core tick & actions
+# ---------------------
+def run_tick(target, atype, intensity):
+    # 1) Edge AI: compute anomaly
+    sc = anomaly_score_attack(atype, intensity)
+    st.session_state.attacker_history.append(sc)
+    log(f"EdgeAI: anomaly score {sc:.2f} on {target}")
+    # 2) DTEE: if score > threshold -> lower trust via GNN propagate
+    threshold = 0.48 * (1.0 - st.session_state.model_quality * 0.2)  # better model = slightly lower false positives
+    if sc > threshold:
+        log(f"DTEE: trust threshold breached for {target} (score {sc:.2f} > {threshold:.2f})")
+        propagate_trust_gnn(target, strength=intensity)
+        # 3) IPM/AIP: translate policy or auto-intent
+        actions = translate_intent(st.session_state.policy_text)
+        # auto augment: if trust very low -> force isolation
+        if st.session_state.trust[target] < 0.35 and "isolate_node" not in actions:
+            actions.append("isolate_node")
+        log(f"AIP: planned actions -> {actions}")
+        # 4) Orchestrator executes actions
+        perform_orchestration(target, actions)
+    else:
+        log(f"DTEE: anomaly below threshold ({sc:.2f} <= {threshold:.2f}); monitoring.")
+
+def perform_orchestration(target, actions):
+    for a in actions:
+        if a == "isolate_node":
+            st.session_state.status[target] = "isolated"
+            st.session_state.orchestrator_actions.insert(0, f"Firewall applied to {target}")
+            log(f"OIL: Firewall applied to {target}")
+        if a == "deploy_honeypot":
+            st.session_state.honeypot[target] = True
+            st.session_state.orchestrator_actions.insert(0, f"Honeypot deployed beside {target}")
+            log(f"OIL: Honeypot deployed to trap attacker around {target}")
+        if a == "reroute_traffic":
+            st.session_state.orchestrator_actions.insert(0, f"Traffic rerouted around {target}")
+            log(f"OIL: Traffic rerouted to maintain service if {target} offline")
+        if a == "notify_ops":
+            st.session_state.orchestrator_actions.insert(0, f"Ops team notified about {target}")
+            log(f"OIL: Ops notified about suspicious activity on {target}")
+        if a == "log_only":
+            st.session_state.orchestrator_actions.insert(0, f"Logged event for {target}")
+            log(f"OIL: Event logged for {target}")
+
 with col_left:
     st.header("Mesh Visualization")
     draw_mesh(st.session_state.trust, highlight=attack_target if st.session_state.attack_active else None)
@@ -234,50 +278,6 @@ with col_right:
     else:
         for line in st.session_state.log[:20]:
             st.write(line)
-
-# ---------------------
-# Core tick & actions
-# ---------------------
-def run_tick(target, atype, intensity):
-    # 1) Edge AI: compute anomaly
-    sc = anomaly_score_attack(atype, intensity)
-    st.session_state.attacker_history.append(sc)
-    log(f"EdgeAI: anomaly score {sc:.2f} on {target}")
-    # 2) DTEE: if score > threshold -> lower trust via GNN propagate
-    threshold = 0.48 * (1.0 - st.session_state.model_quality * 0.2)  # better model = slightly lower false positives
-    if sc > threshold:
-        log(f"DTEE: trust threshold breached for {target} (score {sc:.2f} > {threshold:.2f})")
-        propagate_trust_gnn(target, strength=intensity)
-        # 3) IPM/AIP: translate policy or auto-intent
-        actions = translate_intent(st.session_state.policy_text)
-        # auto augment: if trust very low -> force isolation
-        if st.session_state.trust[target] < 0.35 and "isolate_node" not in actions:
-            actions.append("isolate_node")
-        log(f"AIP: planned actions -> {actions}")
-        # 4) Orchestrator executes actions
-        perform_orchestration(target, actions)
-    else:
-        log(f"DTEE: anomaly below threshold ({sc:.2f} <= {threshold:.2f}); monitoring.")
-
-def perform_orchestration(target, actions):
-    for a in actions:
-        if a == "isolate_node":
-            st.session_state.status[target] = "isolated"
-            st.session_state.orchestrator_actions.insert(0, f"Firewall applied to {target}")
-            log(f"OIL: Firewall applied to {target}")
-        if a == "deploy_honeypot":
-            st.session_state.honeypot[target] = True
-            st.session_state.orchestrator_actions.insert(0, f"Honeypot deployed beside {target}")
-            log(f"OIL: Honeypot deployed to trap attacker around {target}")
-        if a == "reroute_traffic":
-            st.session_state.orchestrator_actions.insert(0, f"Traffic rerouted around {target}")
-            log(f"OIL: Traffic rerouted to maintain service if {target} offline")
-        if a == "notify_ops":
-            st.session_state.orchestrator_actions.insert(0, f"Ops team notified about {target}")
-            log(f"OIL: Ops notified about suspicious activity on {target}")
-        if a == "log_only":
-            st.session_state.orchestrator_actions.insert(0, f"Logged event for {target}")
-            log(f"OIL: Event logged for {target}")
 
 # ---------------------------
 # Scenario presets (mapping)
