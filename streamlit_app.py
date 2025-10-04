@@ -382,10 +382,13 @@ with right_col:
             st.session_state.attack_active = False
             log_event("Attack stopped by operator")
 
-    # Manual mode controls
+       # --------------------------
+    # Manual mode controls (full 6-step flow)
+    # --------------------------
     if mode == "Manual (step-by-step)":
         colA, colB = st.columns([1,1])
         with colA:
+            # Step 1: Detect
             if st.button("Step 1 — Detect (Edge AI)"):
                 sc = compute_anomaly(st.session_state.attack_type, st.session_state.attack_intensity, st.session_state.model_quality)
                 st.session_state.anomaly_history.insert(0, sc)
@@ -394,7 +397,23 @@ with right_col:
                 # update timeline bar
                 st.session_state.timeline_progress = 10
                 progress.progress(st.session_state.timeline_progress)
+                st.success(f"Detect complete: anomaly score {sc:.2f}")
+
+            # Step 3: Intent (AIP) - placed in left column for spacing
+            if st.button("Step 3 — Intent (AIP / IPM)"):
+                if st.session_state.step < 2:
+                    st.error("Run Step 2 — Score (DTEE) before step 3.")
+                else:
+                    actions = aip_translate(st.session_state.policy_text)
+                    st.session_state.pending_actions = actions
+                    log_event(f"AIP: translated intent -> {actions}")
+                    st.session_state.step = 3
+                    st.session_state.timeline_progress = 45
+                    progress.progress(st.session_state.timeline_progress)
+                    st.success(f"AIP created actions: {actions}")
+
         with colB:
+            # Step 2: Score / DTEE
             if st.button("Step 2 — Score (DTEE)"):
                 if st.session_state.step < 1:
                     st.error("Run Step 1 — Detect first.")
@@ -405,12 +424,57 @@ with right_col:
                     if last > threshold:
                         st.session_state.trust = gnn_trust_update(st.session_state.trust, st.session_state.attack_target, st.session_state.attack_intensity)
                         log_event(f"DTEE: trust for {st.session_state.attack_target} -> {st.session_state.trust[st.session_state.attack_target]:.2f}")
-                        st.success(f"Trust drop detected: {st.session_state.attack_target} now {st.session_state.trust[st.session_state.attack_target]:.2f}")
+                        st.success(f"Trust drop: {st.session_state.attack_target} -> {st.session_state.trust[st.session_state.attack_target]:.2f}")
                     else:
                         st.info("No trust breach; continuing monitoring.")
                     st.session_state.step = 2
                     st.session_state.timeline_progress = 30
                     progress.progress(st.session_state.timeline_progress)
+
+            # Step 4: Orchestrate (OIL)
+            if st.button("Step 4 — Orchestrate (OIL)"):
+                if st.session_state.step < 3:
+                    st.error("Run Intent (Step 3) first.")
+                else:
+                    actions = st.session_state.get("pending_actions", aip_translate(st.session_state.policy_text))
+                    orchestrator_execute(st.session_state.attack_target, actions)
+                    log_event(f"OIL: executed actions {actions} on {st.session_state.attack_target}")
+                    st.session_state.step = 4
+                    st.session_state.timeline_progress = 60
+                    progress.progress(st.session_state.timeline_progress)
+                    st.success("Orchestrator executed actions. Check Orchestration log.")
+
+        # Additional steps span full width (below the two columns)
+        down_col1, down_col2 = st.columns([1,1])
+        with down_col1:
+            # Step 5: Forensics
+            if st.button("Step 5 — Forensics (Capture IOCs/IOAs)"):
+                if st.session_state.step < 4:
+                    st.error("Run Orchestrate (Step 4) first.")
+                else:
+                    report = capture_forensics(st.session_state.attack_target, st.session_state.attack_type, st.session_state.attack_intensity)
+                    st.session_state.attack_info = report
+                    log_event(f"Forensics captured for {st.session_state.attack_target}: IOCs {report['iocs']}")
+                    st.session_state.step = 5
+                    st.session_state.timeline_progress = 80
+                    progress.progress(st.session_state.timeline_progress)
+                    st.success("Forensics capture complete. Review forensic report below.")
+                    st.json(report)
+
+        with down_col2:
+            # Step 6: Remediate & Reinstate
+            if st.button("Step 6 — Remediate & Reinstate"):
+                if st.session_state.step < 5:
+                    st.error("Run Forensics (Step 5) first.")
+                else:
+                    remediate(st.session_state.attack_target)
+                    st.session_state.step = 6
+                    st.session_state.timeline_progress = 100
+                    progress.progress(st.session_state.timeline_progress)
+                    st.success(f"{st.session_state.attack_target} remediated and reintegrated. Trust restored: {st.session_state.trust[st.session_state.attack_target]:.2f}")
+
+    # End of Manual mode controls
+
     else:
         # Auto single-run execution (blocking but short)
         if st.button("▶ Run Full Scenario (Auto)"):
